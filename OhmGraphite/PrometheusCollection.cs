@@ -24,6 +24,7 @@ namespace OhmGraphite
             var metrics = Metrics.WithCustomRegistry(registry);
             var prometheusCollection = new PrometheusCollection(collector, metrics);
             registry.AddBeforeCollectCallback(() => prometheusCollection.UpdateMetrics());
+            
             return registry;
         }
 

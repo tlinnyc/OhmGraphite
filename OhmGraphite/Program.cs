@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
-using System.Net;
 using NLog;
 using LibreHardwareMonitor.Hardware;
 using Prometheus;
@@ -111,21 +110,15 @@ namespace OhmGraphite
             }
             else if (config.Prometheus != null)
             {
-                if (config.Prometheus.PushgatewayUrl == null)
+                Logger.Info($"Prometheus port: {config.Prometheus.Port}");
+                var registry = PrometheusCollection.SetupDefault(collector);
+                var server = new MetricServer(config.Prometheus.Host, config.Prometheus.Port, registry: registry);
+                if (config.Prometheus.PushgatewayUrl != null)
                 {
-                    Logger.Info($"Prometheus port: {config.Prometheus.Port}");
-                    var registry = PrometheusCollection.SetupDefault(collector);
-                    var server = new MetricServer(config.Prometheus.Host, config.Prometheus.Port, registry: registry);
-                    return new PrometheusServer(server, collector);
-                }
-                else
-                {
-                    Logger.Info($"Prometheus port: {config.Prometheus.Port}, Pushgateway url: {config.Prometheus.PushgatewayUrl}, Interval: {config.Interval.TotalSeconds}");
-                    var registry = PrometheusCollection.SetupDefault(collector);
-                    var server = new MetricServer(config.Prometheus.Host, config.Prometheus.Port, registry: registry);
+                    Logger.Info($"Pushgateway url: {config.Prometheus.PushgatewayUrl}, Interval: {config.Interval.TotalSeconds}");
                     SendMetrics(config.Prometheus.Port, config.Prometheus.PushgatewayUrl, config.Interval, config.Prometheus.Job, config.LookupName());
-                    return new PrometheusServer(server, collector);
                 }
+                return new PrometheusServer(server, collector);
             }
             else if (config.Timescale != null)
             {
@@ -150,16 +143,23 @@ namespace OhmGraphite
         {
             string metrics_url = $"http://127.0.0.1:{port}/metrics";
             string pushgateway_url = $"{url}metrics/job/{job}/instance/{hostname}";
-            HttpClient client = new();
 
             Task.Run(async () =>
             {
                 while (true)
                 {
-                    await Task.Delay(interval);
-                    var metrics = client.GetAsync(metrics_url).Result.Content.ReadAsStringAsync().Result;
-                    var data = new StringContent(metrics, System.Text.Encoding.UTF8, "text/plain");
-                    await client.PostAsync(pushgateway_url, data);
+                    try
+                    {
+                        await Task.Delay(interval);
+                        HttpClient client = new();
+                        var metrics = client.GetAsync(metrics_url).Result.Content.ReadAsStringAsync().Result;
+                        var data = new StringContent(metrics, System.Text.Encoding.UTF8, "text/plain");
+                        await client.PostAsync(pushgateway_url, data);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Info($"Failed to send metrics: {ex}");
+                    }
                 }
             });
         }
